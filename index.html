@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>So'z topish</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#14213d;--panel:#1d2f56;--key:#2c437a;--text:#f4f1de;--ok:#3a9d5d;--near:#e0a526;--miss:#0e1a33;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:12px 8px calc(12px + env(safe-area-inset-bottom))}
+header{display:flex;justify-content:space-between;width:100%;max-width:380px;font-weight:700;margin-bottom:8px}
+#msg{height:22px;margin:4px 0;font-size:15px}
+#grid{display:grid;grid-template-rows:repeat(6,1fr);gap:6px;margin-bottom:10px}
+.row{display:grid;grid-template-columns:repeat(5,52px);gap:6px}
+.tile{height:52px;border:2px solid var(--key);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;text-transform:uppercase}
+.tile.ok{background:var(--ok);border-color:var(--ok)}
+.tile.near{background:var(--near);border-color:var(--near);color:#14213d}
+.tile.miss{background:var(--miss);border-color:var(--miss)}
+#kb{width:100%;max-width:420px}
+.krow{display:flex;justify-content:center;gap:4px;margin-bottom:6px}
+.k{flex:1;max-width:38px;height:48px;border:0;border-radius:6px;background:var(--key);color:var(--text);font-weight:700;font-size:15px;text-transform:uppercase}
+.k.wide{max-width:60px;font-size:12px}
+.k.ok{background:var(--ok)}.k.near{background:var(--near);color:#14213d}.k.miss{background:var(--miss)}
+#extra{margin-top:8px;padding:10px 14px;border:0;border-radius:8px;background:var(--panel);color:var(--text);font-size:14px}
+</style>
+</head>
+<body>
+<header><span>So'z topish</span><span>Ball: <b id="score">0</b></span></header>
+<div id="msg"></div>
+<div id="grid"></div>
+<div id="kb"></div>
+<button id="extra">+1 urinish (reklama ko'rish)</button>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const WORDS = ["kitob","qalam","tarix","maqol","bahor","doira","ekran","zamin","hayot","daryo",
+"hovli","tovuq","tuxum","sabzi","piyoz","qovun","anjir","olcha","savol","javob"];
+
+// Kunlik so'z: har kuni bir xil so'z hamma uchun
+const day = Math.floor(Date.now() / 86400000);
+const answer = WORDS[day % WORDS.length];
+
+let maxTries = 6, row = 0, col = 0, over = false, won = false;
+let guesses = Array.from({length: 12}, () => "");
+const grid = document.getElementById("grid");
+const msg = document.getElementById("msg");
+
+function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
+let score = parseInt(store("score") || "0", 10);
+const scoreEl = document.getElementById("score");
+scoreEl.textContent = score;
+
+function buildGrid() {
+  grid.innerHTML = "";
+  for (let r = 0; r < maxTries; r++) {
+    const d = document.createElement("div"); d.className = "row";
+    for (let c = 0; c < 5; c++) { const t = document.createElement("div"); t.className = "tile"; t.id = `t${r}${c}`; d.appendChild(t); }
+    grid.appendChild(d);
+  }
+}
+buildGrid();
+
+const keyRows = ["qwertyuiop", "asdfghjkl", "+zxcvbnm-"];
+const kb = document.getElementById("kb");
+keyRows.forEach(s => {
+  const d = document.createElement("div"); d.className = "krow";
+  [...s].forEach(ch => {
+    const b = document.createElement("button"); b.className = "k";
+    if (ch === "+") { b.textContent = "OK"; b.classList.add("wide"); b.onclick = submit; }
+    else if (ch === "-") { b.textContent = "⌫"; b.classList.add("wide"); b.onclick = back; }
+    else { b.textContent = ch; b.id = "k" + ch; b.onclick = () => type(ch); }
+    d.appendChild(b);
+  });
+  kb.appendChild(d);
+});
+
+function say(t) { msg.textContent = t; }
+function type(ch) { if (over || col >= 5) return; guesses[row] += ch; document.getElementById(`t${row}${col}`).textContent = ch; col++; }
+function back() { if (over || col === 0) return; col--; guesses[row] = guesses[row].slice(0, -1); document.getElementById(`t${row}${col}`).textContent = ""; }
+
+function submit() {
+  if (over) return;
+  if (col < 5) { say("5 ta harf kiriting"); return; }
+  const g = guesses[row], res = Array(5).fill("miss"), left = {};
+  for (let i = 0; i < 5; i++) { if (g[i] === answer[i]) res[i] = "ok"; else left[answer[i]] = (left[answer[i]] || 0) + 1; }
+  for (let i = 0; i < 5; i++) { if (res[i] !== "ok" && left[g[i]] > 0) { res[i] = "near"; left[g[i]]--; } }
+  res.forEach((c, i) => {
+    document.getElementById(`t${row}${i}`).classList.add(c);
+    const k = document.getElementById("k" + g[i]);
+    if (k && !k.classList.contains("ok") && !(k.classList.contains("near") && c === "miss")) { k.classList.remove("near", "miss"); k.classList.add(c); }
+  });
+  if (g === answer) { over = true; won = true; addScore(10 * (maxTries - row)); say("To'g'ri! Ball qo'shildi 🎉"); return; }
+  row++; col = 0;
+  if (row >= maxTries) { over = true; say("Javob: " + answer.toUpperCase() + ". Ertaga yangi so'z."); }
+  else say("");
+}
+
+function addScore(n) { score += n; store("score", String(score)); scoreEl.textContent = score; }
+
+// Reklama joyi: Adsgram yoki Monetag SDK shu yerga ulanadi
+function showAd() {
+  return new Promise(resolve => {
+    // TODO: Adsgram: new Adsgram({blockId:"..."}).show().then(()=>resolve(true)).catch(()=>resolve(false))
+    resolve(true); // hozircha sinov uchun
+  });
+}
+
+document.getElementById("extra").onclick = async () => {
+  if (won || !over || maxTries >= 12) { say("Urinishlar tugagach bosing"); return; }
+  const ok = await showAd();
+  if (!ok) { say("Reklama tugamadi"); return; }
+  const d = document.createElement("div"); d.className = "row";
+  for (let c = 0; c < 5; c++) { const t = document.createElement("div"); t.className = "tile"; t.id = `t${maxTries}${c}`; d.appendChild(t); }
+  grid.appendChild(d);
+  maxTries++; over = false; say("Qo'shimcha urinish berildi");
+};
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter") submit(); else if (e.key === "Backspace") back();
+  else if (/^[a-z]$/i.test(e.key)) type(e.key.toLowerCase());
+});
+</script>
+</body>
+</html>
